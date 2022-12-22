@@ -1,40 +1,37 @@
 from django.shortcuts import render
 
 # Create your views here.
-from rest_framework.authtoken.models import Token
+from django.contrib.auth import login
+
+from rest_framework.authtoken.serializers import AuthTokenSerializer
+from knox.views import LoginView as KnoxLoginView
+from rest_framework import generics, permissions
 from rest_framework.response import Response
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
-from rest_framework import serializers, viewsets
+from knox.models import AuthToken
+from .serializers import UserSerializer, RegisterSerializer
 
-from .serializers import SignupSerializer,LoginSerializer,UserSerializer
+# Register API
+class RegisterAPI(generics.GenericAPIView):
+    serializer_class = RegisterSerializer
 
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def signup(request):
-    serializer = SignupSerializer(data=request.data)
-    if serializer.is_valid():
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         user = serializer.save()
-        token, created = Token.objects.get_or_create(user=user)
-        return Response({'token': token.key}, status=201)
-    return Response(serializer.errors, status=400)
+        return Response({
+        "user": UserSerializer(user, context=self.get_serializer_context()).data,
+        "token": AuthToken.objects.create(user)[1]
+        })
+        
+        
 
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def login(request):
-    serializer = LoginSerializer(data=request.data)
-    if serializer.is_valid():
-        user = serializer.validated_data
-        token, created = Token.objects.get_or_create(user=user)
-        return Response({'token': token.key}, status=200)
-    return Response(serializer.errors, status=400)
+class LoginAPI(KnoxLoginView):
+    permission_classes = (permissions.AllowAny,)
 
-@api_view(['POST'])
-def logout(request):
-    request.user.auth_token.delete()
-    return Response(status=204)
-
-
-# class ProfileUpdateView(viewsets.RetrieveUpdateAPIView):
-#     serializer_class = UserSerializer
-#     queryset = User.objects.all()
+    def post(self, request, format=None):
+        serializer = AuthTokenSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data['user']
+        login(request, user)
+        return super(LoginAPI, self).post(request, format=None)
+    
